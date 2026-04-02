@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Logic Architect: Lockdown Edition</title>
+    <style>
+        :root { --bg: #0d1117; --accent: #58a6ff; --text: #c9d1d9; --danger: #f85149; --success: #3fb950; --gold: #f1c40f; }
+        body { font-family: 'Segoe UI', monospace; background: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; padding: 20px; transition: background 0.2s; overflow-x: hidden; }
+        .critical-mode { background: #300 !important; }
+        .screen { display: none; text-align: center; width: 100%; max-width: 600px; }
+        .active { display: block; }
+        
+        /* Logic Surge Animation */
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(-8px); }
+            50% { transform: translateX(8px); }
+            75% { transform: translateX(-8px); }
+            100% { transform: translateX(0); }
+        }
+        .surge { animation: shake 0.3s ease-in-out 2; border: 2px solid var(--danger) !important; }
+
+        .header { border-bottom: 2px solid var(--accent); padding-bottom: 10px; margin-bottom: 20px; }
+        .stats { display: flex; justify-content: space-between; margin-bottom: 15px; color: var(--accent); font-weight: bold; }
+        .circuit-box { background: #161b22; border: 1px solid var(--accent); padding: 20px; border-radius: 8px; font-size: 1.5rem; margin-bottom: 20px; }
+        
+        table { border-collapse: collapse; width: 100%; background: #000; margin-bottom: 20px; transition: 0.3s; }
+        th, td { border: 1px solid #30363d; padding: 8px; text-align: center; }
+        input { width: 40px; background: #0d1117; border: 1px solid var(--accent); color: white; text-align: center; font-size: 1.2rem; outline: none; }
+        
+        .btn { background: var(--accent); color: #0d1117; border: none; padding: 12px 30px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
+        .logic-key { margin-top: 30px; padding: 15px; background: #161b22; border: 1px dashed #30363d; border-radius: 8px; font-size: 0.85rem; text-align: left; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        #timer.urgent { color: var(--danger); animation: blink 0.5s infinite; }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div id="start-screen" class="screen active">
+    <h1 style="color:var(--accent)">DISCRETE STRUCTURE LONG QUIZ</h1>
+    <p>Analyze the circuits. 3 Lives. 60 Seconds per stage.<br>
+    <b>Lvl 1-5: 5 Points</b> | <b>Lvl 6-10: 10 Points</b></p>
+    <button class="btn" onclick="startGame()">INITIALIZE SYSTEM</button>
+</div>
+
+<div id="game-screen" class="screen">
+    <div class="header">
+        <div class="stats">
+            <span>LVL: <span id="lvl-num">1</span>/10</span>
+            <span>SCORE: <span id="score-val">0</span></span>
+            <span id="timer">⏳ 60s</span>
+            <span>LIVES: <span id="lives-count" style="color:var(--danger)">❤️❤️❤️</span></span>
+        </div>
+    </div>
+    <div class="circuit-box" id="expression">...</div>
+    <div id="table-area"></div>
+    <button class="btn" onclick="verifyLogic()">SUBMIT DATA</button>
+    <div id="msg" style="margin-top:10px; font-weight:bold;"></div>
+    
+   
+</div>
+
+<div id="end-screen" class="screen">
+    <h1 id="end-title" style="font-size: 3rem;"></h1>
+    <p id="end-stats" style="font-size: 1.5rem;"></p>
+    <p style="color:var(--danger); margin-top:20px;"><b>TERMINAL LOCKED: AUTHORIZATION REQUIRED TO REPROCEED.</b></p>
+</div>
+
+<script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playSound(freq, type, duration) {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        osc.connect(gain); gain.connect(audioCtx.destination);
+        osc.start(); osc.stop(audioCtx.currentTime + duration);
+    }
+
+    let currentIdx = 0, lives = 3, timeLeft = 60, timerInterval, currentAnswers = [], score = 0;
+
+    const levels = [
+        { expr: "A AND B", v: 2, fn: (a,b) => a && b },
+        { expr: "A OR B", v: 2, fn: (a,b) => a || b },
+        { expr: "NOT A", v: 1, fn: (a) => !a },
+        { expr: "A XOR B", v: 2, fn: (a,b) => a !== b },
+        { expr: "NOT (A AND B)", v: 2, fn: (a,b) => !(a && b) },
+        { expr: "(A OR B) AND C", v: 3, fn: (a,b,c) => (a || b) && c },
+        { expr: "NOT (A OR B OR C)", v: 3, fn: (a,b,c) => !(a || b || c) },
+        { expr: "(A XOR B) AND C", v: 3, fn: (a,b,c) => (a !== b) && c },
+        { expr: "(A AND C) OR (B AND C)", v: 3, fn: (a,b,c) => (a && c) || (b && c) },
+        { expr: "(A XOR B) OR (B XOR C)", v: 3, fn: (a,b,c) => (a !== b) || (b !== c) }
+    ];
+
+    function startGame() {
+        audioCtx.resume();
+        document.getElementById('start-screen').classList.remove('active');
+        document.getElementById('game-screen').classList.add('active');
+        initLevel();
+    }
+
+    function initLevel() {
+        clearInterval(timerInterval);
+        document.body.classList.remove('critical-mode');
+        const lvl = levels[currentIdx];
+        document.getElementById('lvl-num').innerText = currentIdx + 1;
+        document.getElementById('expression').innerText = lvl.expr;
+        document.getElementById('msg').innerText = "";
+        
+        let html = `<table id="main-table"><tr>`;
+        const headers = lvl.v === 1 ? ['A', 'OUT'] : (lvl.v === 2 ? ['A', 'B', 'F'] : ['A', 'B', 'C', 'F']);
+        headers.forEach(h => html += `<th>${h}</th>`);
+        html += `</tr>`;
+
+        currentAnswers = [];
+        for(let i=0; i<Math.pow(2, lvl.v); i++) {
+            const bin = i.toString(2).padStart(lvl.v, '0').split('').map(Number);
+            currentAnswers.push(lvl.fn(...bin.map(b => !!b)) ? 1 : 0);
+            html += `<tr>`;
+            bin.forEach(b => html += `<td>${b}</td>`);
+            html += `<td><input type="text" id="r-${i}" maxlength="1" autocomplete="off"></td></tr>`;
+        }
+        document.getElementById('table-area').innerHTML = html + `</table>`;
+        startTimer();
+    }
+
+    function startTimer() {
+        timeLeft = 60;
+        const tDisp = document.getElementById('timer');
+        tDisp.classList.remove('urgent');
+        timerInterval = setInterval(() => {
+            timeLeft--;
+            tDisp.innerText = `⏳ ${timeLeft}s`;
+            if(timeLeft <= 10) {
+                tDisp.classList.add('urgent');
+                document.body.classList.toggle('critical-mode');
+                playSound(150, 'square', 0.1);
+            }
+            if(timeLeft <= 0) processPenalty("TIME EXPIRED!");
+        }, 1000);
+    }
+
+    function verifyLogic() {
+        let isCorrect = true;
+        currentAnswers.forEach((ans, i) => {
+            if(parseInt(document.getElementById(`r-${i}`).value) !== ans) isCorrect = false;
+        });
+
+        if(isCorrect) {
+            playSound(600, 'sine', 0.2);
+            score += (currentIdx < 5) ? 5 : 10;
+            document.getElementById('score-val').innerText = score;
+            document.getElementById('msg').innerHTML = "✅ SIGNAL STABILIZED";
+            document.getElementById('msg').style.color = "var(--success)";
+            setTimeout(() => {
+                currentIdx++;
+                if(currentIdx < levels.length) initLevel();
+                else finishGame(true);
+            }, 1000);
+        } else {
+            // Trigger Logic Surge Animation
+            const table = document.getElementById('main-table');
+            table.classList.add('surge');
+            setTimeout(() => table.classList.remove('surge'), 600);
+            processPenalty("LOGIC SURGE DETECTED!");
+        }
+    }
+
+    function processPenalty(reason) {
+        playSound(80, 'sawtooth', 0.6);
+        lives--;
+        document.getElementById('lives-count').innerText = "❤️".repeat(Math.max(0, lives));
+        document.getElementById('msg').innerText = `❌ ${reason}`;
+        document.getElementById('msg').style.color = "var(--danger)";
+        if(lives <= 0) finishGame(false);
+        else setTimeout(initLevel, 1500);
+    }
+
+    function finishGame(win) {
+        clearInterval(timerInterval);
+        document.getElementById('game-screen').classList.remove('active');
+        document.getElementById('end-screen').classList.add('active');
+        const title = document.getElementById('end-title');
+        title.innerText = win ? "🏆 ARCHITECT ASCENDED" : " FINAL SCORE";
+        title.style.color = win ? "var(--success)" : "var(--danger)";
+        document.getElementById('end-stats').innerHTML = `Final Score: ${score}<br>Level Reached: ${currentIdx + 1}`;
+    }
+</script>
+</body>
+</html>
